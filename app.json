@@ -1,0 +1,14 @@
+{
+  "get": "",
+  "parameters": [],
+  "errors": {
+    "token": "Missing application key, Check our documentation on how to add your API key in headers.",
+    "error": "4xHe"
+  },
+  "results": 0,
+  "paging": {
+    "current": 1,
+    "total": 1
+  },
+  "response": []
+}
