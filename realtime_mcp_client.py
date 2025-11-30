@@ -2,49 +2,53 @@
 import asyncio
 import websockets
 import json
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 class RealTimeMCPClient:
-    def __init__(self, url="ws://localhost:8000/ws"):
+    def __init__(self, url: str = "ws://localhost:8000/ws"):
         self.url = url
-        self.websocket = None
         self.latest_data = {
             'cricket': [],
             'football': [],
             'last_updated': None
         }
         self.data_ready = asyncio.Event()
+        self._task = None
 
     async def connect(self):
         try:
-            self.websocket = await websockets.connect(self.url)
-            print("Connected to MCP Server (Real-time Push)")
-            asyncio.create_task(self._listener())
+            self.ws = await websockets.connect(self.url, ping_interval=20)
+            print("✅ WebSocket Connected!")
+            self._task = asyncio.create_task(self._listener())
             return True
         except Exception as e:
-            print(f"WebSocket failed: {e}. Falling back to polling...")
-            return True  # Still allow polling fallback
+            print(f"❌ WebSocket failed: {e}")
+            return False
 
     async def _listener(self):
-        async for message in self.websocket:
-            data = json.loads(message)
-            self.latest_data.update({
-                'cricket': data.get('cricket', []),
-                'football': data.get('football', []),
-                'last_updated': data['timestamp']
-            })
-            self.data_ready.set()
+        async for message in self.ws:
+            try:
+                data = json.loads(message)
+                self.latest_data.update({
+                    'cricket': data.get('cricket', []),
+                    'football': data.get('football', []),
+                    'last_updated': data.get('timestamp', self.latest_data['last_updated'])
+                })
+                self.data_ready.set()
+            except Exception as e:
+                print("JSON parse error:", e)
 
-    async def fetch_cricket_current_matches(self) -> List[Dict]:
+    async def get_data(self, key: Optional[str] = None):
+        if not self.data_ready.is_set():
+            try:
+                await asyncio.wait_for(self.data_ready.wait(), timeout=15.0)
+            except asyncio.TimeoutError:
+                pass  # return cache
         self.data_ready.clear()
-        await self.data_ready.wait()
-        return self.latest_data['cricket']
-
-    async def fetch_football_today_matches(self) -> List[Dict]:
-        self.data_ready.clear()
-        await self.data_ready.wait()
-        return self.latest_data['football']
+        return self.latest_data if key is None else self.latest_data.get(key, [])
 
     async def disconnect(self):
-        if self.websocket:
-            await self.websocket.close()
+        if hasattr(self, '_task') and self._task:
+            self._task.cancel()
+        if hasattr(self, 'ws'):
+            await self.ws.close()
